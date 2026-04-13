@@ -24,6 +24,23 @@ use url::Url;
 use crate::error::Error;
 use crate::Result;
 
+/// Parse HDFS path to get relative path from root.
+///
+/// Example: "hdfs://namenode:8020/warehouse/db/table" -> "warehouse/db/table"
+pub(crate) fn hdfs_relative_path(path: &str) -> Result<&str> {
+    let after_scheme = path.strip_prefix("hdfs://").ok_or_else(|| {
+        Error::ConfigInvalid {
+            message: format!("Invalid HDFS path: {path}, should start with hdfs://"),
+        }
+    })?;
+    match after_scheme.find('/') {
+        Some(pos) => Ok(&after_scheme[pos + 1..]),
+        None => Err(Error::ConfigInvalid {
+            message: format!("Invalid HDFS path: {path}, missing path component"),
+        }),
+    }
+}
+
 /// Configuration key for HDFS name node URL.
 ///
 /// Example: "hdfs://namenode:8020" or "hdfs://nameservice1" (HA).
@@ -161,5 +178,35 @@ mod tests {
         ]);
         let cfg = hdfs_config_parse(props).unwrap();
         assert_eq!(cfg.name_node.as_deref(), Some("hdfs://namenode:8020"));
+    }
+
+    #[test]
+    fn test_hdfs_relative_path_normal() {
+        let result = hdfs_relative_path("hdfs://namenode:8020/warehouse/db/table");
+        assert_eq!(result.unwrap(), "warehouse/db/table");
+    }
+
+    #[test]
+    fn test_hdfs_relative_path_root_slash() {
+        let result = hdfs_relative_path("hdfs://namenode:8020/");
+        assert_eq!(result.unwrap(), "");
+    }
+
+    #[test]
+    fn test_hdfs_relative_path_no_port() {
+        let result = hdfs_relative_path("hdfs://nameservice1/warehouse/data");
+        assert_eq!(result.unwrap(), "warehouse/data");
+    }
+
+    #[test]
+    fn test_hdfs_relative_path_missing_path_component() {
+        let result = hdfs_relative_path("hdfs://namenode:8020");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hdfs_relative_path_wrong_scheme() {
+        let result = hdfs_relative_path("s3://bucket/key");
+        assert!(result.is_err());
     }
 }

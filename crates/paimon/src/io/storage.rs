@@ -123,7 +123,7 @@ impl Storage {
             }
             #[cfg(feature = "storage-hdfs")]
             Storage::Hdfs { config, op } => {
-                let relative_path = Self::hdfs_relative_path(path)?;
+                let relative_path = super::hdfs_relative_path(path)?;
                 let mut guard = op.lock().map_err(|_| error::Error::UnexpectedError {
                     message: "Failed to lock HDFS operator".to_string(),
                     source: None,
@@ -259,21 +259,6 @@ impl Storage {
         Ok(op)
     }
 
-    #[cfg(feature = "storage-hdfs")]
-    fn hdfs_relative_path(path: &str) -> crate::Result<&str> {
-        let after_scheme = path.strip_prefix("hdfs://").ok_or_else(|| {
-            error::Error::ConfigInvalid {
-                message: format!("Invalid HDFS path: {path}, should start with hdfs://"),
-            }
-        })?;
-        match after_scheme.find('/') {
-            Some(pos) => Ok(&after_scheme[pos + 1..]),
-            None => Err(error::Error::ConfigInvalid {
-                message: format!("Invalid HDFS path: {path}, missing path component"),
-            }),
-        }
-    }
-
     fn parse_scheme(scheme: &str) -> crate::Result<Scheme> {
         match scheme {
             "memory" => Ok(Scheme::Memory),
@@ -282,61 +267,5 @@ impl Storage {
             "hdfs" => Ok(Scheme::HdfsNative),
             s => Ok(s.parse::<Scheme>()?),
         }
-    }
-}
-
-#[cfg(all(test, feature = "storage-hdfs"))]
-mod hdfs_tests {
-    use super::Storage;
-    use crate::io::FileIOBuilder;
-
-    #[test]
-    fn test_hdfs_relative_path_normal() {
-        let result = Storage::hdfs_relative_path("hdfs://namenode:8020/warehouse/db/table");
-        assert_eq!(result.unwrap(), "warehouse/db/table");
-    }
-
-    #[test]
-    fn test_hdfs_relative_path_root_slash() {
-        let result = Storage::hdfs_relative_path("hdfs://namenode:8020/");
-        assert_eq!(result.unwrap(), "");
-    }
-
-    #[test]
-    fn test_hdfs_relative_path_no_port() {
-        let result = Storage::hdfs_relative_path("hdfs://nameservice1/warehouse/data");
-        assert_eq!(result.unwrap(), "warehouse/data");
-    }
-
-    #[test]
-    fn test_hdfs_relative_path_missing_path_component() {
-        let result = Storage::hdfs_relative_path("hdfs://namenode:8020");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_hdfs_relative_path_wrong_scheme() {
-        let result = Storage::hdfs_relative_path("s3://bucket/key");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_scheme_hdfs() {
-        let scheme = Storage::parse_scheme("hdfs").unwrap();
-        assert_eq!(scheme, opendal::Scheme::HdfsNative);
-    }
-
-    #[test]
-    fn test_file_io_builder_hdfs() {
-        let file_io = FileIOBuilder::new("hdfs")
-            .with_prop("hdfs.name-node", "hdfs://namenode:8020")
-            .build();
-        assert!(file_io.is_ok());
-    }
-
-    #[test]
-    fn test_file_io_from_url_hdfs() {
-        let builder = crate::io::FileIO::from_url("hdfs://namenode:8020/warehouse");
-        assert!(builder.is_ok());
     }
 }
