@@ -16,7 +16,11 @@
 // under the License.
 
 use std::collections::HashMap;
-#[cfg(any(feature = "storage-oss", feature = "storage-s3", feature = "storage-hdfs"))]
+#[cfg(any(
+    feature = "storage-oss",
+    feature = "storage-s3",
+    feature = "storage-hdfs"
+))]
 use std::sync::Mutex;
 #[cfg(any(feature = "storage-oss", feature = "storage-s3"))]
 use std::sync::MutexGuard;

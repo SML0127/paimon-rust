@@ -28,11 +28,11 @@ use crate::Result;
 ///
 /// Example: "hdfs://namenode:8020/warehouse/db/table" -> "warehouse/db/table"
 pub(crate) fn hdfs_relative_path(path: &str) -> Result<&str> {
-    let after_scheme = path.strip_prefix("hdfs://").ok_or_else(|| {
-        Error::ConfigInvalid {
+    let after_scheme = path
+        .strip_prefix("hdfs://")
+        .ok_or_else(|| Error::ConfigInvalid {
             message: format!("Invalid HDFS path: {path}, should start with hdfs://"),
-        }
-    })?;
+        })?;
     match after_scheme.find('/') {
         Some(pos) => Ok(&after_scheme[pos + 1..]),
         None => Err(Error::ConfigInvalid {
