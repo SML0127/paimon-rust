@@ -685,3 +685,40 @@ def test_list_databases_and_tables():
     # simple_log_table is non-partitioned, so partition keys are empty.
     assert schema.partition_keys() == []
 
+# ---------------- #285: observability ----------------
+def test_snapshots_for_simple_table():
+    catalog = PaimonCatalog({"warehouse": WAREHOUSE})
+    table = catalog.get_table("default.simple_log_table")
+
+    snap = table.latest_snapshot()
+    assert snap is not None
+    assert snap.id() >= 1
+    assert snap.commit_time_ms() > 0
+    assert snap.commit_kind() in {"APPEND", "COMPACT", "OVERWRITE", "ANALYZE"}
+
+    snaps = table.list_snapshots()
+    assert len(snaps) >= 1
+    # Newest first.
+    assert snaps[0].id() == snap.id()
+
+
+def test_partitions_and_tags_smoke():
+    catalog = PaimonCatalog({"warehouse": WAREHOUSE})
+    table = catalog.get_table("default.simple_log_table")
+
+    # Non-partitioned, non-tagged table: both should be empty but well-typed.
+    parts = table.list_partitions()
+    stats = table.partition_stats()
+    tags = table.list_tags()
+
+    assert isinstance(parts, list)
+    assert isinstance(stats, list)
+    assert isinstance(tags, list)
+    # simple_log_table has no partition keys -> partition_stats yields a single
+    # empty-partition bucket or zero buckets depending on how the snapshot was
+    # written. Either is acceptable; we just check the shape.
+    for p in parts:
+        assert isinstance(p, dict)
+    for t in tags:
+        assert isinstance(t.name(), str)
+        assert isinstance(t.snapshot_id(), int)
