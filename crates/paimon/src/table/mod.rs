@@ -38,6 +38,7 @@ pub(crate) mod global_index_scanner;
 mod kv_file_reader;
 mod kv_file_writer;
 mod partition_filter;
+mod partition_stat;
 mod postpone_file_writer;
 mod prepared_files;
 mod read_builder;
@@ -67,6 +68,7 @@ pub use data_evolution_writer::DataEvolutionWriter;
 #[cfg(feature = "fulltext")]
 pub use full_text_search_builder::FullTextSearchBuilder;
 use futures::stream::BoxStream;
+pub use partition_stat::PartitionStat;
 pub use read_builder::ReadBuilder;
 pub use rest_env::RESTEnv;
 pub use schema_manager::SchemaManager;
