@@ -28,11 +28,13 @@ use async_trait::async_trait;
 use crate::api::rest_api::RESTApi;
 use crate::api::rest_error::RestError;
 use crate::api::PagedList;
-use crate::catalog::{Catalog, Database, Identifier, DB_LOCATION_PROP};
+use crate::catalog::{
+    list_partitions_from_file_system, Catalog, Database, Identifier, DB_LOCATION_PROP,
+};
 use crate::common::{CatalogOptions, Options};
 use crate::error::Error;
 use crate::io::FileIO;
-use crate::spec::{Schema, SchemaChange, TableSchema};
+use crate::spec::{Partition, Schema, SchemaChange, TableSchema};
 use crate::table::{RESTEnv, Table};
 use crate::Result;
 
@@ -336,6 +338,42 @@ impl Catalog for RESTCatalog {
         Err(Error::Unsupported {
             message: "Alter table is not yet implemented for REST catalog".to_string(),
         })
+    }
+
+    async fn list_partitions(&self, identifier: &Identifier) -> Result<Vec<Partition>> {
+        match self.api.list_partitions(identifier).await {
+            Ok(parts) => Ok(parts),
+            Err(Error::RestApi {
+                source: RestError::NotImplemented { .. },
+            }) => {
+                let table = self.get_table(identifier).await?;
+                list_partitions_from_file_system(&table).await
+            }
+            Err(e) => Err(map_rest_error_for_table(e, identifier)),
+        }
+    }
+
+    async fn list_partitions_paged(
+        &self,
+        identifier: &Identifier,
+        max_results: Option<u32>,
+        page_token: Option<&str>,
+    ) -> Result<PagedList<Partition>> {
+        match self
+            .api
+            .list_partitions_paged(identifier, max_results, page_token)
+            .await
+        {
+            Ok(page) => Ok(page),
+            Err(Error::RestApi {
+                source: RestError::NotImplemented { .. },
+            }) => {
+                let table = self.get_table(identifier).await?;
+                let parts = list_partitions_from_file_system(&table).await?;
+                Ok(PagedList::new(parts, None))
+            }
+            Err(e) => Err(map_rest_error_for_table(e, identifier)),
+        }
     }
 }
 // ============================================================================
