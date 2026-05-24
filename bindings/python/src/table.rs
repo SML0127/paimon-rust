@@ -15,17 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use std::sync::Arc;
+
 use pyo3::prelude::*;
 
-mod blob;
-mod context;
-mod error;
-mod schema;
-mod table;
-mod udf;
+use crate::schema::PyTableSchema;
 
-#[pymodule]
-fn pypaimon_rust(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    context::register_module(py, m)?;
-    Ok(())
+#[pyclass(name = "Table", module = "pypaimon_rust.datafusion")]
+pub struct PyTable {
+    pub(crate) inner: Arc<paimon::table::Table>,
+}
+
+impl PyTable {
+    pub fn new(inner: Arc<paimon::table::Table>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyTable {
+    fn identifier(&self) -> String {
+        let id = self.inner.identifier();
+        format!("{}.{}", id.database(), id.object())
+    }
+
+    fn location(&self) -> String {
+        self.inner.location().to_string()
+    }
+
+    fn schema(&self) -> PyTableSchema {
+        PyTableSchema::new(self.inner.schema().clone())
+    }
 }

@@ -24,25 +24,25 @@ use datafusion::catalog::CatalogProvider;
 use datafusion::logical_expr::{Signature, TypeSignature, Volatility};
 use datafusion_ffi::catalog_provider::FFI_CatalogProvider;
 use datafusion_ffi::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
-use paimon::{CatalogFactory, Options};
+use paimon::catalog::Identifier;
+use paimon::{Catalog, CatalogFactory, Options};
 use paimon_datafusion::{PaimonCatalogProvider, SQLContext};
-use pyo3::exceptions::PyRuntimeWarning;
+use pyo3::exceptions::{PyRuntimeWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 
 use crate::blob::PyBlobReaderRegistry;
 use crate::error::{df_to_py_err, to_py_err};
+use crate::table::PyTable;
 use crate::udf::{build_python_scalar_udf, udf, PyPythonScalarUDFObject};
 use paimon_datafusion::runtime::runtime;
 
-fn build_paimon_catalog_provider(
-    catalog_options: HashMap<String, String>,
-) -> PyResult<Arc<PaimonCatalogProvider>> {
+fn build_paimon_catalog(catalog_options: HashMap<String, String>) -> PyResult<Arc<dyn Catalog>> {
     let rt = runtime();
     rt.block_on(async {
         let options = Options::from_map(catalog_options);
         let catalog = CatalogFactory::create(options).await.map_err(to_py_err)?;
-        Ok::<_, PyErr>(Arc::new(PaimonCatalogProvider::new(catalog)))
+        Ok::<_, PyErr>(catalog)
     })
 }
 
@@ -65,6 +65,7 @@ fn ffi_logical_codec_from_pycapsule(obj: Bound<'_, PyAny>) -> PyResult<FFI_Logic
 /// A Paimon catalog exportable to Python DataFusion `SessionContext`.
 #[pyclass(name = "PaimonCatalog")]
 pub struct PaimonCatalog {
+    catalog: Arc<dyn Catalog>,
     provider: Arc<PaimonCatalogProvider>,
 }
 
@@ -73,9 +74,9 @@ impl PaimonCatalog {
     /// Create a Paimon catalog that can be registered into a DataFusion session.
     #[new]
     fn new(catalog_options: HashMap<String, String>) -> PyResult<Self> {
-        Ok(Self {
-            provider: build_paimon_catalog_provider(catalog_options)?,
-        })
+        let catalog = build_paimon_catalog(catalog_options)?;
+        let provider = Arc::new(PaimonCatalogProvider::new(Arc::clone(&catalog)));
+        Ok(Self { catalog, provider })
     }
 
     /// Export this catalog as a DataFusion catalog provider PyCapsule.
@@ -89,6 +90,35 @@ impl PaimonCatalog {
         let codec = ffi_logical_codec_from_pycapsule(session)?;
         let provider = FFI_CatalogProvider::new_with_ffi_codec(provider, Some(runtime()), codec);
         PyCapsule::new(py, provider, Some(name))
+    }
+
+    /// List all databases in this catalog.
+    fn list_databases(&self) -> PyResult<Vec<String>> {
+        runtime()
+            .block_on(self.catalog.list_databases())
+            .map_err(to_py_err)
+    }
+
+    /// List all tables in the given database.
+    fn list_tables(&self, database_name: &str) -> PyResult<Vec<String>> {
+        runtime()
+            .block_on(self.catalog.list_tables(database_name))
+            .map_err(to_py_err)
+    }
+
+    /// Get a table handle by `"db.table"` identifier.
+    fn get_table(&self, identifier: &str) -> PyResult<PyTable> {
+        let parts: Vec<&str> = identifier.splitn(2, '.').collect();
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+            return Err(PyValueError::new_err(format!(
+                "expected identifier in 'db.table' format, got '{identifier}'"
+            )));
+        }
+        let id = Identifier::new(parts[0], parts[1]);
+        let table = runtime()
+            .block_on(self.catalog.get_table(&id))
+            .map_err(to_py_err)?;
+        Ok(PyTable::new(Arc::new(table)))
     }
 }
 
@@ -226,6 +256,9 @@ impl PySQLContext {
 pub fn register_module(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let this = PyModule::new(py, "datafusion")?;
     this.add_class::<PaimonCatalog>()?;
+    this.add_class::<crate::table::PyTable>()?;
+    this.add_class::<crate::schema::PyTableSchema>()?;
+    this.add_class::<crate::schema::PyDataField>()?;
     this.add_class::<PyPythonScalarUDFObject>()?;
     this.add_class::<PySQLContext>()?;
     this.add_function(wrap_pyfunction!(udf, &this)?)?;

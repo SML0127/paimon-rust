@@ -294,6 +294,7 @@ def test_query_simple_table_via_catalog_provider():
     ]
 
 
+
 def test_sql_context_ddl_dml():
     with tempfile.TemporaryDirectory() as warehouse:
         ctx = SQLContext()
@@ -663,3 +664,24 @@ def test_table_functions_registered_with_catalog():
                 pytest.fail(f"expected {fn} to reject a single argument")
             except Exception as e:
                 assert "requires 4 arguments" in str(e), str(e)
+
+
+def test_list_databases_and_tables():
+    catalog = PaimonCatalog({"warehouse": WAREHOUSE})
+
+    assert "default" in catalog.list_databases()
+
+    tables = catalog.list_tables("default")
+    assert "simple_log_table" in tables
+
+    table = catalog.get_table("default.simple_log_table")
+    assert table.identifier() == "default.simple_log_table"
+    assert table.location().endswith("/default.db/simple_log_table") or table.location()
+
+    schema = table.schema()
+    field_names = [f.name() for f in schema.fields()]
+    assert "id" in field_names
+    assert "name" in field_names
+    # simple_log_table is non-partitioned, so partition keys are empty.
+    assert schema.partition_keys() == []
+
